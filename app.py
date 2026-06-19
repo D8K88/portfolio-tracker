@@ -43,7 +43,9 @@ if "transactions" not in st.session_state:
 if "current_positions" not in st.session_state:
     st.session_state.current_positions = dict(_BASE_POS)
 
-# 세금 계산기 파라미터 세션 상태 초기화
+# ─────────────────────────────────────────
+# Gist 기반 세금 설정 저장/로드
+# ─────────────────────────────────────────
 _TAX_DEFAULTS = dict(
     tx_xrate=1380, tx_year=2026,
     tx_std_ded=30200, tx_lt0=96700, tx_lt15=583750,
@@ -51,9 +53,53 @@ _TAX_DEFAULTS = dict(
     tx_earn_kim=0, tx_feie_kim=0,
     tx_earn_yoon=0, tx_feie_yoon=0, tx_other=0,
 )
-for k, v in _TAX_DEFAULTS.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+_TAX_GIST_FILE = "portfolio_tracker_tax.json"
+
+def _gh_headers():
+    token = st.secrets.get("github", {}).get("token", "")
+    if not token:
+        return None
+    return {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+def _gist_id():
+    return st.secrets.get("github", {}).get("gist_id", "")
+
+def load_tax_settings() -> dict:
+    gid, hdrs = _gist_id(), _gh_headers()
+    if not gid or not hdrs:
+        return {}
+    try:
+        r = requests.get(f"https://api.github.com/gists/{gid}", headers=hdrs, timeout=8)
+        if r.status_code == 200:
+            f = r.json().get("files", {}).get(_TAX_GIST_FILE)
+            if f:
+                return json.loads(f["content"])
+    except Exception:
+        pass
+    return {}
+
+def save_tax_settings() -> bool:
+    gid, hdrs = _gist_id(), _gh_headers()
+    if not gid or not hdrs:
+        return False
+    payload = {k: st.session_state[k] for k in _TAX_DEFAULTS}
+    try:
+        r = requests.patch(
+            f"https://api.github.com/gists/{gid}",
+            headers=hdrs,
+            json={"files": {_TAX_GIST_FILE: {"content": json.dumps(payload, ensure_ascii=False)}}},
+            timeout=8,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+# 세션 초기화: Gist에서 불러오거나 기본값 사용
+if "tax_initialized" not in st.session_state:
+    saved = load_tax_settings()
+    for k, v in _TAX_DEFAULTS.items():
+        st.session_state[k] = saved.get(k, v)
+    st.session_state.tax_initialized = True
 
 # ─────────────────────────────────────────
 # 유틸리티
@@ -293,7 +339,7 @@ with st.sidebar:
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "💼 현재 보유", "📊 손익 분석", "📅 시점별 조회",
-    "📋 거래 내역", "🇺🇸 US 세금 계산", "📝 거래 편집",
+    "📋 거래 내역", "🇺🇸 세금 계산", "📝 거래 편집",
 ])
 
 
@@ -504,8 +550,21 @@ with tab4:
 
 # ── Tab 5: US 세금 계산 ──────────────────
 with tab5:
-    st.subheader("🇺🇸 US 세금 계산기 (MFJ · FEIE)")
-    st.caption("2026 과세연도 기준 (2027년 신고) | 세율은 2025년 확정 브래킷 준용 | 입력값은 세션 내 유지됩니다")
+    st.subheader("🇺🇸 세금 계산기 (MFJ · FEIE)")
+    gist_ok = bool(_gist_id() and _gh_headers())
+    save_col, info_col = st.columns([1, 4])
+    with save_col:
+        if st.button("💾 설정 저장", use_container_width=True,
+                     help="입력값을 GitHub Gist에 저장합니다 (리프레시 후에도 유지)"):
+            if save_tax_settings():
+                st.success("저장됨")
+            else:
+                st.warning("저장 실패 — Secrets에 [github] 섹션을 추가하세요")
+    with info_col:
+        if gist_ok:
+            st.caption("💡 Gist 연결됨 — '설정 저장' 클릭 시 리프레시 후에도 유지됩니다")
+        else:
+            st.caption("⚠️ Gist 미연결 — 설정이 세션 내에서만 유지됩니다. Secrets에 [github] 섹션을 추가하면 영구 저장됩니다")
 
     with st.expander("⚙️ 세율 파라미터 (클릭하여 수정)", expanded=False):
         pp1, pp2 = st.columns(2)
