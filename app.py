@@ -339,7 +339,7 @@ with st.sidebar:
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "💼 현재 보유", "📊 손익 분석", "📅 시점별 조회",
-    "📋 거래 내역", "🇺🇸 세금 계산", "📝 거래 편집",
+    "📋 거래 내역", "🇺🇸 US 세금 계산", "📝 거래 편집",
 ])
 
 
@@ -550,7 +550,7 @@ with tab4:
 
 # ── Tab 5: US 세금 계산 ──────────────────
 with tab5:
-    st.subheader("🇺🇸 세금 계산기 (MFJ · FEIE)")
+    st.subheader("🇺🇸 US 세금 계산기 (MFJ · FEIE)")
     gist_ok = bool(_gist_id() and _gh_headers())
     save_col, info_col = st.columns([1, 4])
     with save_col:
