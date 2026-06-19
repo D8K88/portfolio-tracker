@@ -855,6 +855,47 @@ with tab6:
 
     st.divider()
 
+    # ── 현재 포지션 편집 (보유수량 / 평균단가)
+    with st.expander("📊 현재 포지션 편집 (보유수량 · 평균단가)", expanded=False):
+        st.caption("Tab 1 현재 보유에 표시되는 수량과 평균단가를 직접 수정합니다.")
+
+        for owner in ["윤선화", "김희돈"]:
+            st.markdown(f"**{owner}**")
+            positions = st.session_state.current_positions.get(owner, [])
+
+            # DataFrame으로 변환 (편집 가능)
+            df_pos = pd.DataFrame(positions)[["code","name","shares","avg_price"]] if positions else pd.DataFrame(columns=["code","name","shares","avg_price"])
+            df_pos.columns = ["종목코드","종목명","보유주수","평균단가(원)"]
+
+            edited = st.data_editor(
+                df_pos,
+                key=f"pos_editor_{owner}",
+                use_container_width=True,
+                num_rows="dynamic",
+                column_config={
+                    "종목코드":    st.column_config.TextColumn("종목코드", width="small"),
+                    "종목명":      st.column_config.TextColumn("종목명", width="medium"),
+                    "보유주수":    st.column_config.NumberColumn("보유주수", min_value=0, step=1),
+                    "평균단가(원)": st.column_config.NumberColumn("평균단가(원)", min_value=0, step=1),
+                },
+            )
+
+            if st.button(f"💾 {owner} 포지션 저장", key=f"save_pos_{owner}"):
+                new_positions = []
+                for _, row in edited.iterrows():
+                    if pd.notna(row["종목코드"]) and str(row["종목코드"]).strip():
+                        new_positions.append({
+                            "code":      str(row["종목코드"]).strip(),
+                            "name":      str(row["종목명"]).strip(),
+                            "shares":    int(row["보유주수"]) if pd.notna(row["보유주수"]) else 0,
+                            "avg_price": int(row["평균단가(원)"]) if pd.notna(row["평균단가(원)"]) else 0,
+                        })
+                st.session_state.current_positions[owner] = new_positions
+                st.success(f"✅ {owner} 포지션 업데이트됨 (세션 내 유지 — 영구 저장은 하단 JSON 내보내기 사용)")
+                st.rerun()
+
+            st.divider()
+
     # ── 현재 거래 목록 보기
     st.markdown("**현재 거래 목록**")
     view_owner = None if owner_sel == "전체" else owner_sel
