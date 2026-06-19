@@ -348,27 +348,37 @@ with tab1:
     st.subheader("현재 보유 종목")
     owners_show = ["윤선화", "김희돈"] if owner_sel == "전체" else [owner_sel]
 
-    # 실시간 가격 미리 조회 (중복 요청 방지)
-    all_codes = {pos["code"] for o in owners_show for pos in st.session_state.current_positions.get(o, [])}
+    # 거래내역에서 현재 보유 자동 계산 (FIFO 가중평균)
+    today_str   = date.today().strftime("%Y-%m-%d")
+    all_holdings = compute_holdings_at(today_str)  # [{owner, code, name, shares, avg_price, total_cost}]
+
+    # 소유자별 그룹화
+    from collections import defaultdict as _dd
+    holdings_by_owner = _dd(list)
+    for h in all_holdings:
+        holdings_by_owner[h["owner"]].append(h)
+
+    # 실시간 가격 미리 조회
+    all_codes = {h["code"] for h in all_holdings if h["owner"] in owners_show}
     rt_cache  = {code: fetch_realtime(code) for code in all_codes}
 
-    grand_tc = grand_te = 0  # 전체 합산용
+    grand_tc = grand_te = 0
 
     for owner in owners_show:
-        positions = st.session_state.current_positions.get(owner, [])
+        positions = sorted(holdings_by_owner.get(owner, []), key=lambda x: x["name"])
         rows, tc, te = [], 0, 0
-        for pos in positions:
-            rt   = rt_cache.get(pos["code"])
+        for h in positions:
+            rt   = rt_cache.get(h["code"])
             cur  = rt["price"] if rt else None
-            cost = pos["avg_price"] * pos["shares"]
-            ev   = cur * pos["shares"] if cur else None
+            cost = h["total_cost"]
+            ev   = cur * h["shares"] if cur else None
             gain = (ev - cost) if ev is not None else None
             pct  = (gain / cost * 100) if gain is not None and cost else None
             tc  += cost
             if ev: te += ev
             rows.append({
-                "종목": pos["name"], "보유주": f"{pos['shares']:,}",
-                "평균매입가": fmt_krw(pos["avg_price"]), "매입금액": fmt_krw(cost),
+                "종목": h["name"], "보유주": f"{h['shares']:.0f}",
+                "평균매입가": fmt_krw(h["avg_price"]), "매입금액": fmt_krw(cost),
                 "현재가": fmt_krw(cur) if cur else "조회 중",
                 "평가금액": fmt_krw(ev), "손익": fmt_krw(gain), "수익률": fmt_pct(pct),
             })
@@ -388,32 +398,30 @@ with tab1:
         grand_gain = grand_te - grand_tc if grand_te else None
         grand_pct  = (grand_gain / grand_tc * 100) if grand_gain and grand_tc else None
 
-        # 종목별 합산 (동일 종목 합산)
-        combined: dict = {}  # code → {name, shares, total_cost, eval}
-        for owner in ["윤선화", "김희돈"]:
-            for pos in st.session_state.current_positions.get(owner, []):
-                rt  = rt_cache.get(pos["code"])
-                cur = rt["price"] if rt else None
-                cost = pos["avg_price"] * pos["shares"]
-                ev   = cur * pos["shares"] if cur else None
-                if pos["code"] not in combined:
-                    combined[pos["code"]] = {"name": pos["name"], "shares": 0,
-                                             "total_cost": 0, "total_eval": 0,
-                                             "cur": cur, "has_price": cur is not None}
-                combined[pos["code"]]["shares"]     += pos["shares"]
-                combined[pos["code"]]["total_cost"] += cost
-                if ev:
-                    combined[pos["code"]]["total_eval"] += ev
+        # 종목코드별 합산 (양쪽 모두 보유한 삼성전자·SK하이닉스 등)
+        combined: dict = {}
+        for h in all_holdings:
+            rt  = rt_cache.get(h["code"])
+            cur = rt["price"] if rt else None
+            ev  = cur * h["shares"] if cur else None
+            if h["code"] not in combined:
+                combined[h["code"]] = {"name": h["name"], "shares": 0,
+                                       "total_cost": 0, "total_eval": 0,
+                                       "cur": cur, "has_price": cur is not None}
+            combined[h["code"]]["shares"]     += h["shares"]
+            combined[h["code"]]["total_cost"] += h["total_cost"]
+            if ev:
+                combined[h["code"]]["total_eval"] += ev
 
         total_rows = []
         for code, v in sorted(combined.items(), key=lambda x: x[1]["name"]):
-            cost  = v["total_cost"]
-            ev    = v["total_eval"] if v["has_price"] else None
-            gain  = (ev - cost) if ev else None
-            pct   = (gain / cost * 100) if gain and cost else None
-            avg   = cost / v["shares"] if v["shares"] else 0
+            cost = v["total_cost"]
+            ev   = v["total_eval"] if v["has_price"] else None
+            gain = (ev - cost) if ev else None
+            pct  = (gain / cost * 100) if gain and cost else None
+            avg  = cost / v["shares"] if v["shares"] else 0
             total_rows.append({
-                "종목": v["name"], "총 보유주": f"{int(v['shares']):,}",
+                "종목": v["name"], "총 보유주": f"{v['shares']:.0f}",
                 "평균매입가": fmt_krw(avg), "총 매입금액": fmt_krw(cost),
                 "현재가": fmt_krw(v["cur"]) if v["cur"] else "조회 중",
                 "총 평가금액": fmt_krw(ev), "손익": fmt_krw(gain), "수익률": fmt_pct(pct),
@@ -855,9 +863,9 @@ with tab6:
 
     st.divider()
 
-    # ── 현재 포지션 편집 (보유수량 / 평균단가)
-    with st.expander("📊 현재 포지션 편집 (보유수량 · 평균단가)", expanded=False):
-        st.caption("Tab 1 현재 보유에 표시되는 수량과 평균단가를 직접 수정합니다.")
+    # ── 현재 포지션 확인 (거래내역에서 자동 계산)
+    with st.expander("📊 현재 보유 포지션 (거래내역 자동 계산)", expanded=False):
+        st.caption("거래내역을 기반으로 자동 계산된 현재 포지션입니다. 수량·평균단가를 변경하려면 위에서 거래를 추가/수정/삭제하세요.")
 
         for owner in ["윤선화", "김희돈"]:
             st.markdown(f"**{owner}**")
