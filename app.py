@@ -333,6 +333,12 @@ with st.sidebar:
     last_date = max(t["date"] for t in st.session_state.transactions if t["type"] in ("buy","sell"))
     st.caption(f"마지막 거래: {last_date}")
     st.divider()
+    if st.button("🔄 Secrets에서 새로고침", use_container_width=True,
+                 help="Streamlit Secrets 업데이트 후 클릭하면 최신 데이터를 불러옵니다"):
+        st.cache_data.clear()
+        for k in ["transactions", "current_positions", "tax_initialized"]:
+            st.session_state.pop(k, None)
+        st.rerun()
     if st.button("로그아웃", use_container_width=True):
         st.session_state.auth = False
         st.rerun()
