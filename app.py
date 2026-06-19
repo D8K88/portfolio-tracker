@@ -863,46 +863,24 @@ with tab6:
 
     st.divider()
 
-    # ── 현재 포지션 확인 (거래내역에서 자동 계산)
-    with st.expander("📊 현재 보유 포지션 (거래내역 자동 계산)", expanded=False):
-        st.caption("거래내역을 기반으로 자동 계산된 현재 포지션입니다. 수량·평균단가를 변경하려면 위에서 거래를 추가/수정/삭제하세요.")
-
-        for owner in ["윤선화", "김희돈"]:
-            st.markdown(f"**{owner}**")
-            positions = st.session_state.current_positions.get(owner, [])
-
-            # DataFrame으로 변환 (편집 가능)
-            df_pos = pd.DataFrame(positions)[["code","name","shares","avg_price"]] if positions else pd.DataFrame(columns=["code","name","shares","avg_price"])
-            df_pos.columns = ["종목코드","종목명","보유주수","평균단가(원)"]
-
-            edited = st.data_editor(
-                df_pos,
-                key=f"pos_editor_{owner}",
-                use_container_width=True,
-                num_rows="dynamic",
-                column_config={
-                    "종목코드":    st.column_config.TextColumn("종목코드", width="small"),
-                    "종목명":      st.column_config.TextColumn("종목명", width="medium"),
-                    "보유주수":    st.column_config.NumberColumn("보유주수", min_value=0, step=1),
-                    "평균단가(원)": st.column_config.NumberColumn("평균단가(원)", min_value=0, step=1),
-                },
-            )
-
-            if st.button(f"💾 {owner} 포지션 저장", key=f"save_pos_{owner}"):
-                new_positions = []
-                for _, row in edited.iterrows():
-                    if pd.notna(row["종목코드"]) and str(row["종목코드"]).strip():
-                        new_positions.append({
-                            "code":      str(row["종목코드"]).strip(),
-                            "name":      str(row["종목명"]).strip(),
-                            "shares":    int(row["보유주수"]) if pd.notna(row["보유주수"]) else 0,
-                            "avg_price": int(row["평균단가(원)"]) if pd.notna(row["평균단가(원)"]) else 0,
-                        })
-                st.session_state.current_positions[owner] = new_positions
-                st.success(f"✅ {owner} 포지션 업데이트됨 (세션 내 유지 — 영구 저장은 하단 JSON 내보내기 사용)")
-                st.rerun()
-
-            st.divider()
+    # ── 현재 보유 포지션 (거래내역 자동 계산 결과)
+    with st.expander("📊 현재 보유 포지션 확인 (거래내역 자동 계산)", expanded=False):
+        st.caption("거래 추가·수정·삭제 후 여기서 반영 결과를 확인할 수 있습니다.")
+        computed = compute_holdings_at(date.today().strftime("%Y-%m-%d"))
+        if computed:
+            rows_cp = []
+            for h in sorted(computed, key=lambda x: (x["owner"], x["name"])):
+                rows_cp.append({
+                    "소유자":     h["owner"],
+                    "종목":       h["name"],
+                    "종목코드":   h["code"],
+                    "보유주수":   f"{h['shares']:.0f}",
+                    "평균단가":   fmt_krw(h["avg_price"]),
+                    "총 매입금액": fmt_krw(h["total_cost"]),
+                })
+            st.dataframe(pd.DataFrame(rows_cp), use_container_width=True, hide_index=True)
+        else:
+            st.info("현재 보유 종목 없음")
 
     # ── 현재 거래 목록 보기
     st.markdown("**현재 거래 목록**")
