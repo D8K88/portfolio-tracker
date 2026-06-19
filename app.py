@@ -343,7 +343,6 @@ with tab2:
             agg[k]["cost"]     += r["cost"]
             agg[k]["proceeds"] += r["proceeds"]
             agg[k]["gain"]     += r["gain"]
-            (agg[k]["lt"] if r["is_lt"] else agg[k]["st"]).__add__  # no-op; done below
             if r["is_lt"]:
                 agg[k]["lt"] += r["gain"]
             else:
