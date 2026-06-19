@@ -339,7 +339,7 @@ with st.sidebar:
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "💼 현재 보유", "📊 손익 분석", "📅 시점별 조회",
-    "📋 거래 내역", "🇺🇸 US 세금 계산", "📝 거래 편집",
+    "📋 거래 내역", "🏛️ US 세금 계산", "📝 거래 편집",
 ])
 
 
@@ -347,11 +347,18 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 with tab1:
     st.subheader("현재 보유 종목")
     owners_show = ["윤선화", "김희돈"] if owner_sel == "전체" else [owner_sel]
+
+    # 실시간 가격 미리 조회 (중복 요청 방지)
+    all_codes = {pos["code"] for o in owners_show for pos in st.session_state.current_positions.get(o, [])}
+    rt_cache  = {code: fetch_realtime(code) for code in all_codes}
+
+    grand_tc = grand_te = 0  # 전체 합산용
+
     for owner in owners_show:
         positions = st.session_state.current_positions.get(owner, [])
         rows, tc, te = [], 0, 0
         for pos in positions:
-            rt   = fetch_realtime(pos["code"])
+            rt   = rt_cache.get(pos["code"])
             cur  = rt["price"] if rt else None
             cost = pos["avg_price"] * pos["shares"]
             ev   = cur * pos["shares"] if cur else None
@@ -367,11 +374,56 @@ with tab1:
             })
         tg = te - tc if te else None
         tp = (tg / tc * 100) if tg and tc else None
+        grand_tc += tc
+        grand_te += te
         with st.expander(
             f"**{owner}**  매입 {fmt_krw(tc)}  |  평가 {fmt_krw(te) if te else '-'}  |  손익 {fmt_krw(tg)}  ({fmt_pct(tp)})",
             expanded=True
         ):
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # 전체 합산 (소유자가 여럿일 때만)
+    if owner_sel == "전체":
+        st.divider()
+        grand_gain = grand_te - grand_tc if grand_te else None
+        grand_pct  = (grand_gain / grand_tc * 100) if grand_gain and grand_tc else None
+
+        # 종목별 합산 (동일 종목 합산)
+        combined: dict = {}  # code → {name, shares, total_cost, eval}
+        for owner in ["윤선화", "김희돈"]:
+            for pos in st.session_state.current_positions.get(owner, []):
+                rt  = rt_cache.get(pos["code"])
+                cur = rt["price"] if rt else None
+                cost = pos["avg_price"] * pos["shares"]
+                ev   = cur * pos["shares"] if cur else None
+                if pos["code"] not in combined:
+                    combined[pos["code"]] = {"name": pos["name"], "shares": 0,
+                                             "total_cost": 0, "total_eval": 0,
+                                             "cur": cur, "has_price": cur is not None}
+                combined[pos["code"]]["shares"]     += pos["shares"]
+                combined[pos["code"]]["total_cost"] += cost
+                if ev:
+                    combined[pos["code"]]["total_eval"] += ev
+
+        total_rows = []
+        for code, v in sorted(combined.items(), key=lambda x: x[1]["name"]):
+            cost  = v["total_cost"]
+            ev    = v["total_eval"] if v["has_price"] else None
+            gain  = (ev - cost) if ev else None
+            pct   = (gain / cost * 100) if gain and cost else None
+            avg   = cost / v["shares"] if v["shares"] else 0
+            total_rows.append({
+                "종목": v["name"], "총 보유주": f"{int(v['shares']):,}",
+                "평균매입가": fmt_krw(avg), "총 매입금액": fmt_krw(cost),
+                "현재가": fmt_krw(v["cur"]) if v["cur"] else "조회 중",
+                "총 평가금액": fmt_krw(ev), "손익": fmt_krw(gain), "수익률": fmt_pct(pct),
+            })
+
+        with st.expander(
+            f"**합계 (부부 전체)**  매입 {fmt_krw(grand_tc)}  |  평가 {fmt_krw(grand_te) if grand_te else '-'}  |  손익 {fmt_krw(grand_gain)}  ({fmt_pct(grand_pct)})",
+            expanded=True
+        ):
+            st.dataframe(pd.DataFrame(total_rows), use_container_width=True, hide_index=True)
 
 
 # ── Tab 2: 손익 분석 ─────────────────────
@@ -550,7 +602,7 @@ with tab4:
 
 # ── Tab 5: US 세금 계산 ──────────────────
 with tab5:
-    st.subheader("🇺🇸 US 세금 계산기 (MFJ · FEIE)")
+    st.subheader("🏛️ US 세금 계산기 (MFJ · FEIE)")
     gist_ok = bool(_gist_id() and _gh_headers())
     save_col, info_col = st.columns([1, 4])
     with save_col:
