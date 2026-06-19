@@ -905,9 +905,22 @@ with tab6:
         export_txn = json.dumps(st.session_state.transactions, ensure_ascii=False)
         st.code(f"transactions = '''\n{export_txn}\n'''", language="toml")
 
-        st.markdown("**current_positions** (보유수량/평균단가 변경 시):")
+        # current_positions: 거래내역에서 자동 계산
+        computed_now = compute_holdings_at(date.today().strftime("%Y-%m-%d"))
+        cp_export: dict = {}
+        for h in sorted(computed_now, key=lambda x: x["name"]):
+            owner = h["owner"]
+            if owner not in cp_export:
+                cp_export[owner] = []
+            cp_export[owner].append({
+                "code":      h["code"],
+                "name":      h["name"],
+                "shares":    round(h["shares"]),
+                "avg_price": round(h["avg_price"]),
+            })
+        st.markdown("**current_positions** (거래내역에서 자동 계산 — 위 transactions 저장 후 함께 업데이트):")
         st.code(
-            f"current_positions = '''\n{json.dumps(st.session_state.current_positions, ensure_ascii=False)}\n'''",
+            f"current_positions = '''\n{json.dumps(cp_export, ensure_ascii=False)}\n'''",
             language="toml"
         )
 
